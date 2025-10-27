@@ -3,13 +3,14 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Learn ethical packet sniffing with Python and Scapy, including flood detection and suspicious port alerts.">
     <link rel="stylesheet" href="styles.css">
     <title>Cyber Lab: Packet Sniffer</title>
 </head>
 <body class="packet-page">
     <header>
         <h1>Packet Sniffer Lab</h1>
-        <p>Learn to capture and analyze network traffic ethically using Python.</p>
+        <p>Learn ethical packet sniffing techniques using Python and Scapy.</p>
     </header>
 
     <nav>
@@ -26,18 +27,269 @@
         <div class="lab-section">
             <div class="section-header">Packet Sniffer</div>
             <div class="section-content">
-                <p>Explore packet sniffing to understand network traffic. Use <strong>Scapy</strong> or <strong>pcap</strong> to capture and analyze packets in real-time.</p>
+                <p>Learn how to capture and analyze network packets in real-time using Python. Use <strong>Scapy</strong> to explore raw socket programming and packet analysis.</p>
                 <div class="warning">
-                    <strong>Legal Note:</strong> Only use packet sniffing on networks you own or have explicit permission to monitor.
+                    <strong>Legal Note:</strong> Only use packet sniffing on networks you own or have explicit permission to monitor. Unauthorized sniffing is illegal.
                 </div>
                 <p>Topics include:</p>
                 <ul>
-                    <li>TCP/IP and network protocols</li>
-                    <li>Packet structure and headers</li>
-                    <li>Filtering specific traffic (e.g., HTTP, DNS)</li>
-                    <li>Writing Python scripts for live traffic analysis</li>
+                    <li>TCP/IP basics</li>
+                    <li>Packet structure and analysis</li>
+                    <li>Filtering and live traffic inspection</li>
+                    <li>Flood detection and suspicious port alerts</li>
                 </ul>
-                <!-- Add code snippets or lab exercises here -->
+            </div>
+        </div>
+
+        <div class="lab-section">
+            <div class="section-header">Packet Sniffer Code Walkthrough</div>
+            <div class="section-content">
+                <p>Below is a step-by-step explanation of a Python packet sniffer that captures IPv4/IPv6 packets, detects floods, and alerts on suspicious ports. This is for <strong>educational purposes only</strong>. Always obtain permission before monitoring any network.</p>
+
+                <h3>Step 1: Import Libraries and Set Up Constants</h3>
+                <p>Import Scapy for packet handling, along with other libraries for argument parsing, timing, and signal handling. Define constants for suspicious ports and flood detection.</p>
+                <pre><code><span class="keyword">import</span> argparse
+<span class="keyword">import</span> time
+<span class="keyword">import</span> signal
+<span class="keyword">from</span> collections <span class="keyword">import</span> defaultdict
+<span class="keyword">from</span> scapy.all <span class="keyword">import</span> sniff, wrpcap, conf, get_if_list, IP, IPv6, TCP, UDP, Raw
+
+<span class="comment"># Configurable Defaults</span>
+SUSPICIOUS_PORTS = {23, 2323, 4444, 5555, 6667, 22, 3389}
+FLOOD_THRESHOLD = 100
+FLOOD_TIME_WINDOW = 10  <span class="comment"># seconds</span>
+PAYLOAD_PRINT_LIMIT = 500  <span class="comment"># characters to show from payload</span>
+
+packet_counts = defaultdict(<span class="keyword">int</span>)
+alerts_log = []
+captured_packets = []  <span class="comment"># if saving pcap, we append here</span>
+start_time = time.time()
+                </code></pre>
+                <p><strong>Explanation</strong>: <code>scapy.all</code> provides packet handling functions, <code>argparse</code> manages command-line arguments, and <code>defaultdict</code> tracks packet counts. Constants define suspicious ports (e.g., 23 for Telnet, 22 for SSH), flood thresholds, and payload limits.</p>
+
+                <h3>Step 2: Select Network Interface</h3>
+                <p>Define a function to select the best network interface for sniffing, with a fallback to common interfaces or Scapy’s default.</p>
+                <pre><code><span class="keyword">def</span> find_best_interface(preferred_iface=<span class="keyword">None</span>):
+    <span class="comment">"""
+    Heuristic to choose an interface:
+    1) If user provided --iface, use it (if present in get_if_list())
+    2) Try common macOS / Linux names ('en0','eth0','wlan0')
+    3) Fallback to scapy's conf.iface
+    """</span>
+    available = get_if_list()
+    <span class="keyword">if</span> preferred_iface:
+        <span class="keyword">if</span> preferred_iface <span class="keyword">in</span> available:
+            <span class="keyword">return</span> preferred_iface
+        <span class="keyword">else</span>:
+            print(<span class="string">f"[!] Requested interface '{preferred_iface}' not found among {available}. Falling back."</span>)
+
+    <span class="comment"># try common macOS wifi (en0) first</span>
+    candidates = [<span class="string">"en0"</span>, <span class="string">"en1"</span>, <span class="string">"eth0"</span>, <span class="string">"wlan0"</span>, conf.iface]
+    <span class="keyword">for</span> c <span class="keyword">in</span> candidates:
+        <span class="keyword">if</span> c <span class="keyword">and</span> c <span class="keyword">in</span> available:
+            <span class="keyword">return</span> c
+
+    <span class="comment"># fallback to first available</span>
+    <span class="keyword">if</span> available:
+        <span class="keyword">return</span> available[0]
+    <span class="keyword">return</span> conf.iface
+                </code></pre>
+                <p><strong>Explanation</strong>: This function checks available interfaces using <code>get_if_list()</code>, prioritizes user input, tries common interfaces (e.g., <code>en0</code> for macOS), and falls back to Scapy’s default interface.</p>
+
+                <h3>Step 3: Detect Packet Flooding</h3>
+                <p>Implement a function to detect high packet rates from a single source, indicating potential flooding.</p>
+                <pre><code><span class="keyword">def</span> check_flooding(src_ip, current_time):
+    <span class="comment">"""
+    Maintains a sliding window counter (simple): resets every FLOOD_TIME_WINDOW seconds.
+    If a single source sends > FLOOD_THRESHOLD packets within a window, generate an alert once.
+    """</span>
+    <span class="keyword">if</span> <span class="keyword">not</span> hasattr(check_flooding, <span class="string">"last_reset"</span>):
+        check_flooding.last_reset = current_time
+
+    <span class="keyword">if</span> current_time - check_flooding.last_reset > FLOOD_TIME_WINDOW:
+        packet_counts.clear()
+        check_flooding.last_reset = current_time
+
+    packet_counts[src_ip] += 1
+    <span class="keyword">if</span> packet_counts[src_ip] > FLOOD_THRESHOLD:
+        alert_msg = <span class="string">f"[FLOOD ALERT] High packet rate from IP: {src_ip}"</span>
+        <span class="keyword">if</span> alert_msg <span class="keyword">not</span> <span class="keyword">in</span> alerts_log:
+            alerts_log.append(alert_msg)
+            print(alert_msg)
+                </code></pre>
+                <p><strong>Explanation</strong>: This function uses a sliding window to track packet counts per IP. If an IP exceeds 100 packets in 10 seconds, it triggers a one-time flood alert.</p>
+
+                <h3>Step 4: Decode Packet Payload Safely</h3>
+                <p>Define a function to safely decode packet payloads, avoiding errors and limiting output length.</p>
+                <pre><code><span class="keyword">def</span> safe_decode_payload(raw_bytes):
+    <span class="comment">"""Safely convert payload bytes to string. Limit length to avoid terminal flood."""</span>
+    <span class="keyword">if</span> raw_bytes <span class="keyword">is</span> <span class="keyword">None</span>:
+        <span class="keyword">return</span> <span class="string">""</span>
+    <span class="keyword">try</span>:
+        <span class="keyword">if</span> isinstance(raw_bytes, bytes):
+            decoded = raw_bytes.decode(errors=<span class="string">"replace"</span>)
+        <span class="keyword">else</span>:
+            <span class="comment"># Scapy sometimes gives payload as memoryview/other</span>
+            decoded = str(raw_bytes)
+        <span class="keyword">return</span> decoded[:PAYLOAD_PRINT_LIMIT] + (<span class="string">"...[truncated]"</span> <span class="keyword">if</span> len(decoded) > PAYLOAD_PRINT_LIMIT <span class="keyword">else</span> <span class="string">""</span>)
+    <span class="keyword">except</span> Exception:
+        <span class="keyword">return</span> repr(raw_bytes)
+                </code></pre>
+                <p><strong>Explanation</strong>: This function decodes raw packet payloads into strings, handling non-bytes data and truncating long payloads to 500 characters for readability.</p>
+
+                <h3>Step 5: Format Protocol and Ports</h3>
+                <p>Create a function to identify the transport protocol and extract port numbers.</p>
+                <pre><code><span class="keyword">def</span> format_proto(packet):
+    <span class="comment">"""Return human-readable protocol string and ports if available."""</span>
+    proto = <span class="string">"OTHER"</span>
+    src_port = dst_port = <span class="string">"-"</span>
+    <span class="keyword">if</span> TCP <span class="keyword">in</span> packet:
+        proto = <span class="string">"TCP"</span>
+        src_port, dst_port = packet[TCP].sport, packet[TCP].dport
+    <span class="keyword">elif</span> UDP <span class="keyword">in</span> packet:
+        proto = <span class="string">"UDP"</span>
+        src_port, dst_port = packet[UDP].sport, packet[UDP].dport
+    <span class="keyword">return</span> proto, src_port, dst_port
+                </code></pre>
+                <p><strong>Explanation</strong>: This function checks for TCP or UDP layers in the packet, returning the protocol name and source/destination ports, or defaults to “OTHER” with placeholder ports.</p>
+
+                <h3>Step 6: Process Packets</h3>
+                <p>Define the callback function to process each captured packet, printing details and checking for suspicious activity.</p>
+                <pre><code><span class="keyword">def</span> packet_callback(packet):
+    <span class="comment">"""
+    Called for every sniffed packet. Prints summary, payload (safe), detects suspicious ports and floods.
+    """</span>
+    ts = time.strftime(<span class="string">"%Y-%m-%d %H:%M:%S"</span>, time.localtime())
+    print(<span class="string">f"\n{ts} --- Packet Captured ---"</span>)
+
+    src = dst = proto_field = <span class="keyword">None</span>
+
+    <span class="keyword">if</span> IP <span class="keyword">in</span> packet:
+        src = packet[IP].src
+        dst = packet[IP].dst
+        proto_field = <span class="string">f"IPv4 (proto={packet[IP].proto})"</span>
+    <span class="keyword">elif</span> IPv6 <span class="keyword">in</span> packet:
+        src = packet[IPv6].src
+        dst = packet[IPv6].dst
+        proto_field = <span class="string">f"IPv6 (nh={getattr(packet[IPv6], 'nh', '?')})"</span>
+    <span class="keyword">else</span>:
+        print(<span class="string">"Non-IP packet (could be ARP or other)."</span>)
+        proto_field = <span class="string">"NON-IP"</span>
+
+    <span class="keyword">if</span> src <span class="keyword">and</span> dst:
+        print(<span class="string">f"Source: {src}"</span>)
+        print(<span class="string">f"Destination: {dst}"</span>)
+
+    proto, src_port, dst_port = format_proto(packet)
+    print(<span class="string">f"Layer Protocol: {proto_field}"</span>)
+    print(<span class="string">f"Transport: {proto}"</span>)
+    print(<span class="string">f"Source Port: {src_port}"</span>)
+    print(<span class="string">f"Destination Port: {dst_port}"</span>)
+    print(<span class="string">f"Packet Length: {len(packet)} bytes"</span>)
+
+    <span class="keyword">if</span> TCP <span class="keyword">in</span> packet:
+        print(<span class="string">f"TCP Header: Seq={packet[TCP].seq}, Ack={packet[TCP].ack}, Flags={packet[TCP].sprintf('%flags%')}"</span>)
+    <span class="keyword">elif</span> UDP <span class="keyword">in</span> packet:
+        print(<span class="string">f"UDP Header: Len={packet[UDP].len}"</span>)
+
+    <span class="keyword">if</span> Raw <span class="keyword">in</span> packet:
+        payload_data = safe_decode_payload(packet[Raw].load)
+        print(<span class="string">f"Payload (truncated to first {PAYLOAD_PRINT_LIMIT} chars):"</span>)
+        print(payload_data <span class="keyword">or</span> <span class="string">"[No printable data]"</span>)
+    <span class="keyword">else</span>:
+        print(<span class="string">"Payload: [No printable data]"</span>)
+
+    <span class="keyword">if</span> isinstance(src_port, <span class="keyword">int</span>) <span class="keyword">and</span> src_port <span class="keyword">in</span> SUSPICIOUS_PORTS <span class="keyword">or</span> isinstance(dst_port, <span class="keyword">int</span>) <span class="keyword">and</span> dst_port <span class="keyword">in</span> SUSPICIOUS_PORTS:
+        involved = src_port <span class="keyword">if</span> isinstance(src_port, <span class="keyword">int</span>) <span class="keyword">and</span> src_port <span class="keyword">in</span> SUSPICIOUS_PORTS <span class="keyword">else</span> dst_port
+        sp_alert = <span class="string">f"[SUSPICIOUS PORT] {proto} traffic on suspicious port: {involved}"</span>
+        <span class="keyword">if</span> sp_alert <span class="keyword">not</span> <span class="keyword">in</span> alerts_log:
+            alerts_log.append(sp_alert)
+            print(sp_alert)
+
+    <span class="keyword">if</span> src:
+        check_flooding(src, time.time())
+
+    <span class="keyword">if</span> packet_callback.save_pcap:
+        captured_packets.append(packet)
+
+    print(<span class="string">"------------------------"</span>)
+                </code></pre>
+                <p><strong>Explanation</strong>: The <code>packet_callback</code> function processes each packet, printing timestamp, source/destination IPs, protocol, ports, and payload. It checks for suspicious ports (e.g., 4444) and flooding, and stores packets if saving to a pcap file is enabled.</p>
+
+                <h3>Step 7: Handle Program Exit</h3>
+                <p>Define a function to gracefully exit the sniffer, printing a summary and saving packets if requested.</p>
+                <pre><code><span class="keyword">def</span> graceful_exit(signum, frame):
+    <span class="comment">"""Print summary and optionally write pcap if requested."""</span>
+    duration = time.time() - start_time
+    print(<span class="string">"\n\n=== Sniffer stopped ==="</span>)
+    print(<span class="string">f"Captured packets stored (for saving): {len(captured_packets)}"</span>)
+    print(<span class="string">f"Unique alert messages: {len(alerts_log)}"</span>)
+    <span class="keyword">for</span> a <span class="keyword">in</span> alerts_log:
+        print(<span class="string">"  "</span>, a)
+    print(<span class="string">f"Total runtime: {duration:.1f}s"</span>)
+    <span class="keyword">if</span> packet_callback.save_pcap <span class="keyword">and</span> packet_callback.pcap_name:
+        <span class="keyword">try</span>:
+            wrpcap(packet_callback.pcap_name, captured_packets)
+            print(<span class="string">f"Saved {len(captured_packets)} packets to {packet_callback.pcap_name}"</span>)
+        <span class="keyword">except</span> Exception <span class="keyword">as</span> e:
+            print(<span class="string">f"[!] Failed to save pcap: {e}"</span>)
+    <span class="keyword">raise</span> SystemExit(0)
+                </code></pre>
+                <p><strong>Explanation</strong>: This function runs on program exit (e.g., via Ctrl+C), summarizing captured packets and alerts, and saving to a pcap file if specified.</p>
+
+                <h3>Step 8: Main Function and Sniffing</h3>
+                <p>Set up command-line arguments and start the packet sniffer.</p>
+                <pre><code><span class="keyword">def</span> main():
+    parser = argparse.ArgumentParser(description=<span class="string">"Scapy packet sniffer (IPv4 + IPv6, alerts, pcap save)."</span>)
+    parser.add_argument(<span class="string">"--iface"</span>, <span class="string">"-i"</span>, help=<span class="string">"Interface to sniff on (default: auto-detect)."</span>)
+    parser.add_argument(<span class="string">"--count"</span>, <span class="string">"-c"</span>, type=<span class="keyword">int</span>, default=10, help=<span class="string">"Number of packets to capture (default 10). Use 0 for unlimited."</span>)
+    parser.add_argument(<span class="string">"--save"</span>, <span class="string">"-s"</span>, nargs=<span class="string">"?"</span>, const=<span class="string">"capture.pcap"</span>, help=<span class="string">"Save captured packets to pcap file (optional filename)."</span>)
+    parser.add_argument(<span class="string">"--promisc"</span>, action=<span class="string">"store_true"</span>, help=<span class="string">"Enable promiscuous mode if supported."</span>)
+    parser.add_argument(<span class="string">"--timeout"</span>, type=<span class="keyword">int</span>, default=<span class="keyword">None</span>, help=<span class="string">"Stop sniffing after TIMEOUT seconds (optional)."</span>)
+    args = parser.parse_args()
+
+    iface = find_best_interface(args.iface)
+    <span class="keyword">if</span> <span class="keyword">not</span> iface:
+        print(<span class="string">"[!] No network interface detected. Exiting."</span>)
+        <span class="keyword">return</span>
+
+    print(<span class="string">f"[+] Using interface: {iface}"</span>)
+    <span class="keyword">if</span> args.promisc:
+        conf.sniff_promisc = <span class="keyword">True</span>
+
+    packet_callback.save_pcap = bool(args.save)
+    packet_callback.pcap_name = args.save <span class="keyword">if</span> args.save <span class="keyword">else</span> <span class="keyword">None</span>
+
+    signal.signal(signal.SIGINT, graceful_exit)
+    signal.signal(signal.SIGTERM, graceful_exit)
+
+    print(<span class="string">f"Capturing {('forever' if args.count == 0 else args.count)} packets on {iface} ... (Ctrl+C to stop)\n"</span>)
+    sniff_kwargs = dict(iface=iface, prn=packet_callback, store=<span class="keyword">False</span>)
+    <span class="keyword">if</span> args.count <span class="keyword">and</span> args.count > 0:
+        sniff_kwargs[<span class="string">"count"</span>] = args.count
+    <span class="keyword">if</span> args.timeout:
+        sniff_kwargs[<span class="string">"timeout"</span>] = args.timeout
+
+    sniff(**sniff_kwargs)
+    graceful_exit(<span class="keyword">None</span>, <span class="keyword">None</span>)
+
+<span class="keyword">if</span> __name__ == <span class="string">"__main__"</span>:
+    main()
+                </code></pre>
+                <p><strong>Explanation</strong>: The <code>main</code> function parses arguments (e.g., interface, packet count), sets up the sniffer with <code>scapy.sniff</code>, and handles graceful exit. It supports options like promiscuous mode and pcap saving.</p>
+
+                <h3>Usage Instructions</h3>
+                <p>Run the script in a terminal with appropriate permissions:</p>
+                <ul>
+                    <li>Install Scapy: <code>pip install scapy</code></li>
+                    <li>Run with sudo: <code>sudo python3 packet.py</code></li>
+                    <li>Optional arguments: <code>--iface en0</code>, <code>--count 100</code>, <code>--save capture.pcap</code>, <code>--promisc</code>, <code>--timeout 60</code></li>
+                </ul>
+                <p>Explore the code to understand packet analysis, flood detection, and suspicious port monitoring.</p>
+
+                <div class="warning">
+                    <strong>Legal Reminder:</strong> Packet sniffing without consent is illegal and unethical. This code is for learning in a controlled environment (e.g., your own network or a lab with permission).
+                </div>
             </div>
         </div>
     </main>
