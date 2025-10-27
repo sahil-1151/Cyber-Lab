@@ -4,19 +4,19 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link rel="stylesheet" href="styles.css">
-    <title>Cyber Lab: Brute Force Attack</title>
+    <title>Cyber Lab: Brute Force Password Cracker</title>
 </head>
 <body class="brute-page">
     <header>
-        <h1>Brute Force Attack Lab</h1>
-        <p>Understand brute force techniques and defenses using Python.</p>
+        <h1>Brute Force Password Cracker Lab</h1>
+        <p>Learn to build and understand a brute-force password cracker ethically with Python.</p>
     </header>
 
     <nav>
         <ul>
             <li><a href="index.html">Home</a></li>
             <li><a href="packet.html">Packet Sniffer</a></li>
-            <li><a href="brute.html">Brute Force</a></li>
+            <li><a href="brute.html" class="active">Brute Force</a></li>
             <li><a href="key.html">Key Logger</a></li>
             <li><a href="phishing.html">Phishing Email</a></li>
         </ul>
@@ -24,20 +24,214 @@
 
     <main>
         <div class="lab-section">
-            <div class="section-header">Brute Force Attack</div>
+            <div class="section-header">Brute Force Password Cracker</div>
             <div class="section-content">
-                <p>Learn how brute force attacks attempt to crack passwords. Use Python’s <strong>itertools</strong> and <strong>hashlib</strong> for simulations.</p>
+                <p>Create a simple brute-force password cracker that tests an embedded wordlist of common passwords to crack a target password.</p>
                 <div class="warning">
-                    <strong>Ethical Use Only:</strong> Brute force is illegal on systems without authorization. Use only on your own test accounts.
+                    <strong>Warning:</strong> Brute-force tools can be used maliciously. Never use this without explicit consent from all parties involved. This code is for educational purposes only in a controlled, authorized environment.
                 </div>
                 <p>Topics include:</p>
                 <ul>
-                    <li>Hash functions and password cracking</li>
-                    <li>Wordlist generation</li>
-                    <li>Multiprocessing for speed</li>
-                    <li>Defenses like rate limiting and account lockout</li>
+                    <li>Dictionary-based brute-force attacks</li>
+                    <li>Using an embedded wordlist</li>
+                    <li>Command-line argument parsing</li>
+                    <li>Ethical hacking considerations</li>
                 </ul>
-                <!-- Add code snippets or lab exercises here -->
+            </div>
+        </div>
+
+        <div class="lab-section">
+            <div class="section-header">Brute Force Code Walkthrough</div>
+            <div class="section-content">
+                <p>Below is a step-by-step explanation of a Python brute-force password cracker that tests a target password against an embedded wordlist of common passwords (e.g., <code>1234</code>, <code>grok@1234</code>). This is for <strong>educational purposes only</strong>. Always obtain permission before attempting to crack passwords.</p>
+                
+                <h3>Step 1: Import Libraries and Define Wordlist</h3>
+                <p>Import libraries for timing, argument parsing, and system operations. Define an embedded wordlist of common passwords.</p>
+                <pre><code><span class="keyword">import</span> time
+<span class="keyword">import</span> argparse
+<span class="keyword">import</span> sys
+
+<span class="comment"># Embedded wordlist with common passwords</span>
+WORDLIST = [
+    <span class="string">"password"</span>,
+    <span class="string">"admin"</span>,
+    <span class="string">"1234"</span>,
+    <span class="string">"grok"</span>,
+    <span class="string">"grok@1234"</span>,
+    <span class="string">"qwerty"</span>,
+    <span class="string">"letmein"</span>,
+    <span class="string">"welcome"</span>,
+    <span class="string">"password123"</span>,
+    <span class="string">"admin2023"</span>,
+    <span class="string">"123456"</span>,
+    <span class="string">"123456789"</span>,
+    <span class="string">"12345678"</span>,
+    <span class="string">"qwerty123"</span>,
+    <span class="string">"qwerty1"</span>,
+    <span class="string">"111111"</span>,
+    <span class="string">"12345"</span>,
+    <span class="string">"secret"</span>,
+    <span class="string">"123123"</span>,
+    <span class="string">"1234567"</span>,
+    <span class="string">"monkey"</span>,
+    <span class="string">"abc123"</span>,
+    <span class="string">"login"</span>,
+    <span class="string">"1q2w3e4r"</span>,
+    <span class="string">"dragon"</span>,
+    <span class="string">"passw0rd"</span>,
+    <span class="string">"master"</span>,
+    <span class="string">"sunshine"</span>,
+    <span class="string">"qazwsx"</span>,
+    <span class="string">"654321"</span>,
+    <span class="string">"football"</span>,
+    <span class="string">"shadow"</span>,
+    <span class="string">"123321"</span>,
+    <span class="string">"superman"</span>,
+    <span class="string">"696969"</span>,
+    <span class="string">"987654321"</span>,
+    <span class="string">"qazxsw"</span>,
+    <span class="string">"1qaz2wsx"</span>,
+    <span class="string">"123qwe"</span>,
+    <span class="string">"password1"</span>,
+    <span class="string">"555555"</span>,
+    <span class="string">"666666"</span>,
+    <span class="string">"7777777"</span>,
+    <span class="string">"121212"</span>,
+    <span class="string">"baseball"</span>,
+    <span class="string">"abcdef"</span>,
+    <span class="string">"trustno1"</span>,
+    <span class="string">"112233"</span>,
+    <span class="string">"123abc"</span>,
+    <span class="string">"789456123"</span>,
+    <span class="string">"159753"</span>,
+    <span class="string">"asdfgh"</span>,
+    <span class="string">"147258369"</span>,
+    <span class="string">"11223344"</span>,
+    <span class="string">"123123123"</span>
+]
+                </code></pre>
+                <p><strong>Explanation</strong>: <code>time</code> tracks execution time, <code>argparse</code> handles command-line arguments, and <code>sys</code> manages system operations. The <code>WORDLIST</code> contains 63 common passwords, including <code>1234</code>, <code>grok@1234</code>, and others like <code>password</code> and <code>123456</code>.</p>
+
+                <h3>Step 2: Define the Brute-Force Function</h3>
+                <p>Create a function to test the target password against the embedded wordlist.</p>
+                <pre><code><span class="keyword">def</span> brute_force_cracker(target_password, max_attempts=<span class="keyword">None</span>, progress_interval=10000):
+    <span class="string">"""
+    Attempts to crack a password by matching it against an embedded wordlist.
+    Args:
+        target_password (str): The password to crack.
+        max_attempts (int, optional): Maximum number of attempts before giving up.
+        progress_interval (int): Print progress every N attempts.
+    """</span>
+    attempts = 0
+    start_time = time.time()
+    
+    <span class="keyword">if</span> <span class="keyword">not</span> target_password:
+        print(<span class="string">"[!] Error: Target password cannot be empty."</span>)
+        <span class="keyword">return</span>
+
+    print(<span class="string">"[+] Starting brute-force attack on password using embedded wordlist..."</span>)
+    print(<span class="string">"[!] Legal Note: Use this tool only for educational purposes or with explicit permission."</span>)
+
+    <span class="keyword">try</span>:
+        <span class="keyword">for</span> word <span class="keyword">in</span> WORDLIST:
+            attempts += 1
+            
+            <span class="keyword">if</span> attempts % progress_interval == 0:
+                print(<span class="string">f"[*] Attempts: {attempts}, Time elapsed: {time.time() - start_time:.2f}s"</span>)
+
+            <span class="keyword">if</span> max_attempts <span class="keyword">and</span> attempts >= max_attempts:
+                print(<span class="string">f"[!] Reached max attempts ({max_attempts}). Stopping."</span>)
+                <span class="keyword">return</span>
+
+            <span class="keyword">if</span> word == target_password:
+                elapsed_time = time.time() - start_time
+                print(<span class="string">f"\n[+] Password cracked!"</span>)
+                print(<span class="string">f"Password: {word}"</span>)
+                print(<span class="string">f"Attempts: {attempts}"</span>)
+                print(<span class="string">f"Elapsed time: {elapsed_time:.2f} seconds"</span>)
+                <span class="keyword">return</span>
+                
+        print(<span class="string">"\n[-] Password not found in the wordlist."</span>)
+        elapsed_time = time.time() - start_time
+        print(<span class="string">f"Total attempts: {attempts}"</span>)
+        print(<span class="string">f"Total time: {elapsed_time:.2f} seconds"</span>)
+
+    <span class="keyword">except</span> Exception <span class="keyword">as</span> e:
+        print(<span class="string">f"[!] Unexpected error: {e}"</span>)
+                </code></pre>
+                <p><strong>Explanation</strong>: The <code>brute_force_cracker</code> function iterates through <code>WORDLIST</code>, comparing each word to the target password. It tracks attempts, reports progress for large lists, stops if <code>max_attempts</code> is reached, and displays results.</p>
+
+                <h3>Step 3: Parse Command-Line Arguments</h3>
+                <p>Define a function to parse command-line arguments for the target password and optional settings.</p>
+                <pre><code><span class="keyword">def</span> main():
+    <span class="string">"""
+    Parse command-line arguments and run the brute-force cracker.
+    """</span>
+    parser = argparse.ArgumentParser(description=<span class="string">"Educational brute-force password cracker using an embedded wordlist."</span>)
+    parser.add_argument(<span class="string">"-p"</span>, <span class="string">"--password"</span>, required=<span class="keyword">True</span>, help=<span class="string">"Target password to crack"</span>)
+    parser.add_argument(<span class="string">"-m"</span>, <span class="string">"--max-attempts"</span>, type=<span class="keyword">int</span>, help=<span class="string">"Maximum number of attempts (optional)"</span>)
+    parser.add_argument(<span class="string">"-i"</span>, <span class="string">"--progress-interval"</span>, type=<span class="keyword">int</span>, default=10000, help=<span class="string">"Show progress every N attempts (default: 10000)"</span>)
+    
+    args = parser.parse_args()
+    
+    brute_force_cracker(args.password, args.max_attempts, args.progress_interval)
+                </code></pre>
+                <p><strong>Explanation</strong>: The <code>main</code> function uses <code>argparse</code> to parse the required <code>-p</code> (password) argument and optional <code>-m</code> (max attempts) and <code>-i</code> (progress interval) arguments, then calls <code>brute_force_cracker</code>.</p>
+
+                <h3>Step 4: Run the Script</h3>
+                <p>Start the script with error handling for user interrupts.</p>
+                <pre><code><span class="keyword">if</span> __name__ == <span class="string">"__main__"</span>:
+    <span class="keyword">try</span>:
+        main()
+    <span class="keyword">except</span> KeyboardInterrupt:
+        print(<span class="string">"\n[!] Stopped by user (Ctrl+C)."</span>)
+        sys.exit(0)
+                </code></pre>
+                <p><strong>Explanation</strong>: This block runs the <code>main</code> function and catches <code>KeyboardInterrupt</code> (Ctrl+C) to exit gracefully.</p>
+
+                <h3>Step 5: Running the Script on macOS</h3>
+                <p>Save and run the script in a macOS Terminal to test passwords like <code>1234</code> or <code>grok@1234</code>.</p>
+                <pre><code># Save the script
+cd ~/attacks
+nano brute.py
+# Paste the script, save with Ctrl+O, Enter, Ctrl+X
+
+# Run the script
+python3 brute.py -p 1234
+                </code></pre>
+                <p><strong>Output Example:</strong></p>
+                <pre><code>[+] Starting brute-force attack on password using embedded wordlist...
+[!] Legal Note: Use this tool only for educational purposes or with explicit permission.
+[+] Password cracked!
+Password: 1234
+Attempts: 3
+Elapsed time: 0.01 seconds
+                </code></pre>
+                <p><strong>Try Another Password:</strong></p>
+                <pre><code>python3 brute.py -p grok@1234
+                </code></pre>
+                <p><strong>Optional Arguments:</strong></p>
+                <ul>
+                    <li><code>-m 1000</code>: Limit to 1,000 attempts.</li>
+                    <li><code>-i 500</code>: Show progress every 500 attempts.</li>
+                    <li>Example: <code>python3 brute.py -p 1234 -m 1000 -i 500</code></li>
+                </ul>
+                <p><strong>Embedded Wordlist (Partial):</strong></p>
+                <pre><code>password
+admin
+1234
+grok
+grok@1234
+qwerty
+123456
+123456789
+password1
+...
+                </code></pre>
+
+                <div class="warning">
+                    <strong>Legal Reminder:</strong> Brute-forcing passwords without consent is illegal and unethical. This code is for learning in a controlled environment (e.g., your own computer or a lab with permission).
+                </div>
             </div>
         </div>
     </main>
